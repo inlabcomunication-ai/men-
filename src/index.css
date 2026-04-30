@@ -1,0 +1,41 @@
+@import "tailwindcss";
+
+@theme {
+  --color-pizza-red: #C1121F;
+  --color-pizza-cream: #FFF8F0;
+  --color-pizza-dark: #1A0A00;
+  --color-pizza-gold: #E8A020;
+}
+
+@layer base {
+  body {
+    @apply bg-[#f0ebe4] text-[#2d1800] font-sans;
+  }
+}
+
+.playfair {
+  font-family: 'Playfair Display', serif;
+}
+
+/* Custom classes for the landing preview */
+.l-hero-overlay {
+  background: linear-gradient(to bottom, rgba(26,10,0,0.3), rgba(26,10,0,0.7));
+}
+
+.l-item-dots {
+  flex: 1;
+  border-bottom: 1px dotted #ccc;
+  margin: 0 0.5rem;
+  min-width: 20px;
+  align-self: center;
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
