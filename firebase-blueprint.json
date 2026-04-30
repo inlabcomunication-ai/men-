@@ -1,0 +1,67 @@
+{
+  "entities": {
+    "MenuItem": {
+      "title": "MenuItem",
+      "description": "Un elemento del menu",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "ingredients": { "type": "string" },
+        "ml": { "type": "number" }
+      },
+      "required": ["id", "name", "price"]
+    },
+    "SocialConfig": {
+      "title": "SocialConfig",
+      "description": "Configurazione di un social network",
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "url": { "type": "string" }
+      },
+      "required": ["enabled", "url"]
+    },
+    "Pizzeria": {
+      "title": "Pizzeria",
+      "description": "Dati completi di una pizzeria",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "subtitle": { "type": "string" },
+        "phone": { "type": "string" },
+        "heroImg": { "type": "string" },
+        "logoImg": { "type": "string" },
+        "menu": {
+          "type": "object",
+          "properties": {
+            "pizze": { "type": "array", "items": { "$ref": "MenuItem" } },
+            "bianche": { "type": "array", "items": { "$ref": "MenuItem" } },
+            "speciali": { "type": "array", "items": { "$ref": "MenuItem" } },
+            "pucce": { "type": "array", "items": { "$ref": "MenuItem" } },
+            "bibite": { "type": "array", "items": { "$ref": "MenuItem" } }
+          }
+        },
+        "socials": {
+          "type": "object",
+          "properties": {
+            "whatsapp": { "$ref": "SocialConfig" },
+            "facebook": { "$ref": "SocialConfig" },
+            "instagram": { "$ref": "SocialConfig" },
+            "tiktok": { "$ref": "SocialConfig" }
+          }
+        },
+        "ownerId": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "ownerId"]
+    }
+  },
+  "firestore": {
+    "/pizzerias/{pizzeriaId}": {
+      "schema": "Pizzeria",
+      "description": "Collezione delle pizzerie gestite"
+    }
+  }
+}
