@@ -289,20 +289,22 @@ export default function PublicMenu() {
                       return (
                       <div key={item.id} className="flex flex-col sm:flex-row sm:justify-between sm:items-baseline group gap-2 sm:gap-4">
                         <div className="flex-1">
-                          <div className="flex flex-wrap items-baseline gap-2">
-                            <h4 className="text-xl font-black leading-tight" style={{ color: theme.dark }}>{item.name}</h4>
-                            {itemAllergens.map(a => (
-                              <span
-                                key={a.id}
-                                title={`${a.name}${a.description ? ' — ' + a.description : ''}`}
-                                className="text-[10px] font-black px-1.5 py-0.5 rounded"
-                                style={{ background: `${theme.primary}1a`, color: theme.primary, border: `1px solid ${theme.primary}40` }}
-                              >
-                                {a.code}
-                              </span>
-                            ))}
-                          </div>
-                          <p className="text-sm text-neutral-500 italic mt-1 font-medium">
+                          <h4 className="text-xl font-black leading-tight" style={{ color: theme.dark }}>{item.name}</h4>
+                          {itemAllergens.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1.5">
+                              {itemAllergens.map(a => (
+                                <span
+                                  key={a.id}
+                                  title={`${a.name}${a.description ? ' — ' + a.description : ''}`}
+                                  className="text-[10px] font-black px-1.5 py-0.5 rounded"
+                                  style={{ background: `${theme.primary}1a`, color: theme.primary, border: `1px solid ${theme.primary}40` }}
+                                >
+                                  {a.code}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          <p className="text-sm text-neutral-500 italic mt-1.5 font-medium">
                             {isDrink ? (item.ml ? `${item.ml}ml` : '') : item.ingredients}
                           </p>
                         </div>
