@@ -15,7 +15,8 @@ interface MenuItem {
   name: string;
   price: number;
   ingredients?: string;
-  ml?: number;
+  ml?: number;        // legacy: vecchie bevande con solo numero ml
+  format?: string;    // nuovo: testo libero (es. "33cl", "alla spina", "0,5 L")
   hidden?: boolean;
   allergenIds?: string[]; // riferimenti agli id degli allergeni
 }
@@ -313,18 +314,37 @@ export default function Dashboard() {
 
     const { updatedAt: _, ownerId: __, ...cleanNewData } = newData as any;
 
+    // Sanitize: Firestore non accetta `undefined`. Rimuoviamo ricorsivamente.
+    const stripUndefined = (val: any): any => {
+      if (val === undefined) return undefined;
+      if (val === null) return null;
+      if (Array.isArray(val)) {
+        return val.map(stripUndefined).filter(v => v !== undefined);
+      }
+      if (typeof val === 'object') {
+        const out: any = {};
+        for (const k of Object.keys(val)) {
+          const v = stripUndefined(val[k]);
+          if (v !== undefined) out[k] = v;
+        }
+        return out;
+      }
+      return val;
+    };
+    const sanitized = stripUndefined(cleanNewData);
+
     if (lastSavedJson.current) {
         try {
             const parsedLastSaved = JSON.parse(lastSavedJson.current);
-            if (JSON.stringify(cleanNewData) === JSON.stringify(parsedLastSaved)) return;
+            if (JSON.stringify(sanitized) === JSON.stringify(parsedLastSaved)) return;
         } catch(e) {}
     }
 
     try {
       setSaveStatus(true);
-      lastSavedJson.current = JSON.stringify(cleanNewData);
+      lastSavedJson.current = JSON.stringify(sanitized);
       await setDoc(doc(db, 'pizzerias', user.uid), {
-        ...newData,
+        ...sanitized,
         ownerId: user.uid,
         updatedAt: serverTimestamp()
       }, { merge: true });
@@ -359,10 +379,14 @@ export default function Dashboard() {
       id: Math.random().toString(36).slice(2, 11),
       name: nameInput.value,
       price: parseFloat(priceInput.value),
-      ...(drink
-        ? { ml: parseInt(detailInput.value) || undefined }
-        : { ingredients: detailInput.value })
     };
+    if (drink) {
+      // Testo libero: ml, cl, lt, "alla spina", "lattina", ecc.
+      const formatVal = (detailInput.value || '').trim();
+      if (formatVal) newItem.format = formatVal;
+    } else {
+      newItem.ingredients = detailInput.value || '';
+    }
     setData(prev => ({ ...prev, menu: { ...prev.menu, [cat]: [...(prev.menu[cat] || []), newItem] } }));
     nameInput.value = ''; priceInput.value = ''; detailInput.value = '';
   };
@@ -392,7 +416,14 @@ export default function Dashboard() {
       ...prev,
       menu: {
         ...prev.menu,
-        [cat]: prev.menu[cat].map(item => item.id === id ? { ...item, ...editForm } as MenuItem : item)
+        [cat]: prev.menu[cat].map(item => {
+          if (item.id !== id) return item;
+          // Costruisco l'item nuovo SENZA campi undefined (Firestore non li accetta)
+          const merged: any = { ...item, ...editForm };
+          if (merged.ml === undefined || merged.ml === null || isNaN(merged.ml)) delete merged.ml;
+          if (merged.ingredients === undefined) merged.ingredients = '';
+          return merged as MenuItem;
+        })
       }
     }));
     setEditingItemId(null);
@@ -1020,7 +1051,7 @@ export default function Dashboard() {
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                     <input id={`add-${activeTab}-name`} placeholder="Nome" className="bg-neutral-50 border border-neutral-200 rounded-lg px-4 py-3 text-sm" />
                     <input id={`add-${activeTab}-price`} type="number" placeholder="Prezzo" className="bg-neutral-50 border border-neutral-200 rounded-lg px-4 py-3 text-sm" />
-                    <input id={`add-${activeTab}-detail`} placeholder={isDrinkCategory(activeTab) ? 'ml' : 'Ingredienti'} className="bg-neutral-50 border border-neutral-200 rounded-lg px-4 py-3 text-sm" />
+                    <input id={`add-${activeTab}-detail`} placeholder={isDrinkCategory(activeTab) ? 'Formato (es. 33cl, 0,5 lt)' : 'Ingredienti'} className="bg-neutral-50 border border-neutral-200 rounded-lg px-4 py-3 text-sm" />
                     <button onClick={() => addMenuItem(activeTab)} className="bg-pizza-dark text-white px-4 py-3 rounded-lg text-sm font-bold hover:bg-black transition-colors">+ Aggiungi</button>
                   </div>
                   <p className="text-[11px] text-neutral-400 italic flex items-center gap-1">Trascina <GripVertical size={12} /> per riordinare gli elementi.</p>
@@ -1052,9 +1083,13 @@ export default function Dashboard() {
                                 placeholder="Prezzo" className="bg-white border border-neutral-300 rounded-lg px-4 py-2 text-sm w-full"
                               />
                               <input
-                                value={isDrinkCategory(activeTab) ? (editForm.ml ?? '') : (editForm.ingredients ?? '')}
-                                onChange={(e) => setEditForm(prev => isDrinkCategory(activeTab) ? { ...prev, ml: parseInt(e.target.value) || undefined } : { ...prev, ingredients: e.target.value })}
-                                placeholder={isDrinkCategory(activeTab) ? 'ml' : 'Ingredienti'} className="bg-white border border-neutral-300 rounded-lg px-4 py-2 text-sm w-full"
+                                value={isDrinkCategory(activeTab)
+                                  ? (editForm.format ?? (editForm.ml ? `${editForm.ml}ml` : ''))
+                                  : (editForm.ingredients ?? '')}
+                                onChange={(e) => setEditForm(prev => isDrinkCategory(activeTab)
+                                  ? { ...prev, format: e.target.value, ml: undefined }
+                                  : { ...prev, ingredients: e.target.value })}
+                                placeholder={isDrinkCategory(activeTab) ? 'Formato (es. 33cl, 0,5 lt)' : 'Ingredienti'} className="bg-white border border-neutral-300 rounded-lg px-4 py-2 text-sm w-full"
                               />
                               <div className="flex gap-2 w-full">
                                 <button onClick={() => saveEditMenuItem(activeTab, item.id)} className="flex-1 bg-green-500 text-white p-2 rounded-lg text-sm font-bold flex justify-center items-center hover:bg-green-600"><Check size={18} /></button>
@@ -1069,7 +1104,9 @@ export default function Dashboard() {
                               <div className="flex-1 min-w-0">
                                 <p className={`text-lg font-bold ${item.hidden ? 'line-through text-neutral-500' : 'text-pizza-dark'}`}>{item.name}</p>
                                 <p className="text-sm text-neutral-800 italic truncate">
-                                  {isDrinkCategory(activeTab) ? `${item.ml || ''}${item.ml ? 'ml' : ''}` : item.ingredients}
+                                  {isDrinkCategory(activeTab)
+                                    ? (item.format || (item.ml ? `${item.ml}ml` : ''))
+                                    : item.ingredients}
                                 </p>
                                 {(data.allergens || []).length > 0 && (
                                   <div className="flex flex-wrap gap-1 mt-2">
@@ -1223,7 +1260,9 @@ export default function Dashboard() {
                             </div>
                           )}
                           <p className="text-sm text-neutral-500 italic mt-1.5 font-medium">
-                            {isDrinkCategory(previewTab) ? (item.ml ? `${item.ml}ml` : '') : item.ingredients}
+                            {isDrinkCategory(previewTab)
+                              ? (item.format || (item.ml ? `${item.ml}ml` : ''))
+                              : item.ingredients}
                           </p>
                         </div>
                         <div className="hidden sm:block flex-1 h-[1px] border-b-2 border-dotted border-neutral-300 mx-2 mb-1 opacity-50" />
