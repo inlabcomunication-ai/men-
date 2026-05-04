@@ -11,6 +11,7 @@ interface MenuItem {
   price: number;
   ingredients?: string;
   ml?: number;
+  format?: string;
   hidden?: boolean;
   allergenIds?: string[];
 }
@@ -173,10 +174,30 @@ export default function PublicMenu() {
     return () => unsubscribe();
   }, [resolvedId]);
 
-  // Categorie effettive (con fallback legacy)
-  const categories: CategoryDef[] = data?.categories && Array.isArray(data.categories) && data.categories.length
-    ? data.categories
-    : LEGACY_CATEGORIES;
+  // Categorie effettive: usa SEMPRE quelle salvate dall'utente.
+  // Solo se categories è completamente assente (pizzerie molto vecchie)
+  // ricostruiamo le categorie dalle chiavi presenti in `menu`.
+  let categories: CategoryDef[];
+  if (data?.categories && Array.isArray(data.categories) && data.categories.length > 0) {
+    categories = data.categories;
+  } else if (data?.menu && typeof data.menu === 'object') {
+    // Fallback: deriva le categorie dalle chiavi del menu
+    const menuKeys = Object.keys(data.menu);
+    if (menuKeys.length > 0) {
+      const fallbackByKey: Record<string, CategoryDef> = {
+        pizze:    { key: 'pizze',    label: 'Pizze' },
+        bianche:  { key: 'bianche',  label: 'Pizze Bianche' },
+        speciali: { key: 'speciali', label: 'Speciali' },
+        pucce:    { key: 'pucce',    label: 'Pucce' },
+        bibite:   { key: 'bibite',   label: 'Bibite', isDrink: true },
+      };
+      categories = menuKeys.map(k => fallbackByKey[k] || { key: k, label: k.charAt(0).toUpperCase() + k.slice(1) });
+    } else {
+      categories = LEGACY_CATEGORIES;
+    }
+  } else {
+    categories = LEGACY_CATEGORIES;
+  }
   const visibleCategories = categories.filter(c => !c.hidden);
 
   // Imposta tab iniziale appena arrivano i dati
@@ -352,7 +373,9 @@ export default function PublicMenu() {
                             </div>
                           )}
                           <p className="text-sm text-neutral-500 italic mt-1.5 font-medium">
-                            {isDrink ? (item.ml ? `${item.ml}ml` : '') : item.ingredients}
+                            {isDrink
+                              ? (item.format || (item.ml ? `${item.ml}ml` : ''))
+                              : item.ingredients}
                           </p>
                         </div>
                         <div className="hidden sm:block flex-1 h-[1px] border-b-2 border-dotted border-neutral-300 mx-2 mb-1 opacity-50" />
