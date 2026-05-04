@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { Pizza, Phone, Instagram, Facebook, Smartphone, Globe, AlertTriangle } from 'lucide-react';
+import { Pizza, Phone, Instagram, Facebook, Smartphone, Globe, AlertTriangle, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { doc, onSnapshot, getDoc } from 'firebase/firestore';
@@ -94,6 +94,20 @@ export default function PublicMenu() {
   const [activeTab, setActiveTab] = useState<string>('');
   const [resolvedId, setResolvedId] = useState<string | null>(null);
   const [resolveError, setResolveError] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Chiudi dropdown al click fuori
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    const onClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [dropdownOpen]);
 
   // Risolve l'ID della pizzeria dallo slug:
   // 1. Se lo slug ha forma "...-<uid>" (vecchio formato), prendiamo l'ultimo segmento
@@ -248,24 +262,57 @@ export default function PublicMenu() {
 
           {/* Menu Sections */}
           <div className="p-6 flex-1">
-            {/* Category Chips */}
-            <div className="flex flex-wrap justify-center gap-3 mb-8">
-              {visibleCategories.map(cat => {
-                const isActive = activeTab === cat.key;
-                return (
-                  <button
-                    key={cat.key}
-                    onClick={() => setActiveTab(cat.key)}
-                    className="whitespace-nowrap px-6 py-3 rounded-full text-sm font-black border uppercase tracking-wider shadow-sm transition-all"
-                    style={isActive
-                      ? { background: theme.primary, color: '#fff', borderColor: theme.primary, transform: 'scale(1.05)' }
-                      : { background: '#fff', color: '#737373', borderColor: '#e5e5e5' }
-                    }
+            {/* Category Dropdown */}
+            <div className="relative mb-8 max-w-xs mx-auto" ref={dropdownRef}>
+              <button
+                type="button"
+                onClick={() => setDropdownOpen(o => !o)}
+                aria-expanded={dropdownOpen}
+                aria-haspopup="listbox"
+                className="w-full flex items-center justify-between gap-3 px-6 py-4 rounded-full text-sm font-black uppercase tracking-wider shadow-md transition-all active:scale-[0.98]"
+                style={{ background: theme.primary, color: '#fff', border: `1px solid ${theme.primary}` }}
+              >
+                <span className="truncate">
+                  {visibleCategories.find(c => c.key === activeTab)?.label || 'Seleziona sezione'}
+                </span>
+                <ChevronDown
+                  size={18}
+                  style={{ transition: 'transform 0.2s ease', transform: dropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}
+                />
+              </button>
+
+              <AnimatePresence>
+                {dropdownOpen && (
+                  <motion.ul
+                    initial={{ opacity: 0, y: -8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{ duration: 0.15 }}
+                    role="listbox"
+                    className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-xl overflow-hidden z-30 max-h-[60vh] overflow-y-auto"
+                    style={{ border: `1px solid ${theme.primary}30` }}
                   >
-                    {cat.label}
-                  </button>
-                );
-              })}
+                    {visibleCategories.map(cat => {
+                      const isActive = cat.key === activeTab;
+                      return (
+                        <li key={cat.key} role="option" aria-selected={isActive}>
+                          <button
+                            type="button"
+                            onClick={() => { setActiveTab(cat.key); setDropdownOpen(false); }}
+                            className="w-full text-left px-6 py-3 text-sm font-bold uppercase tracking-wider transition-colors"
+                            style={isActive
+                              ? { background: theme.cream, color: theme.primary }
+                              : { background: '#fff', color: theme.dark }
+                            }
+                          >
+                            {cat.label}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </motion.ul>
+                )}
+              </AnimatePresence>
             </div>
 
             {/* Menu Items List */}
