@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Pizza, Eye, EyeOff, Plus, Trash2, Phone, Instagram, Facebook, Smartphone, Globe,
   Image as ImageIcon, Check, Info, X, Copy, Share2, QrCode, Download, LogOut,
-  LogIn, Mail, Lock, Edit3, GripVertical, Palette, ArrowUp, ArrowDown, AlertTriangle
+  LogIn, Mail, Lock, Edit3, GripVertical, Palette, ArrowUp, ArrowDown, AlertTriangle,
+  ChevronDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeCanvas } from 'qrcode.react';
@@ -153,6 +154,7 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<string>('pizze');
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<MenuItem>>({});
+  const [expandedAllergens, setExpandedAllergens] = useState<Set<string>>(new Set());
   const [previewTab, setPreviewTab] = useState<string>('pizze');
   const [saveStatus, setSaveStatus] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
@@ -677,31 +679,31 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#f0ebe4]">
-      <header className="bg-pizza-dark border-b-4 border-pizza-red px-6 py-4 flex items-center justify-between sticky top-0 z-50 shadow-lg">
-        <div className="flex items-center gap-6">
-          <div>
-            <h1 className="text-white text-2xl font-bold tracking-tight italic flex items-center gap-2"><Pizza className="text-pizza-red" size={28} /> Pizzeria Dashboard</h1>
-            <p className="text-neutral-400 text-sm mt-1">Gestione menu e anteprima live</p>
+      <header className="bg-pizza-dark border-b-4 border-pizza-red px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3 sticky top-0 z-50 shadow-lg">
+        <div className="flex items-center gap-6 min-w-0">
+          <div className="min-w-0">
+            <h1 className="text-white text-base sm:text-2xl font-bold tracking-tight italic flex items-center gap-2 truncate"><Pizza className="text-pizza-red flex-shrink-0" size={22} /> <span className="truncate">Pizzeria Dashboard</span></h1>
+            <p className="text-neutral-400 text-xs sm:text-sm mt-0.5 sm:mt-1 hidden sm:block">Gestione menu e anteprima live</p>
           </div>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
           <AnimatePresence>
             {quotaExceeded && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-red-500 text-white px-3 py-1 rounded-lg text-[10px] font-black uppercase"><Info size={12} /> Quota Esaurita</motion.div>}
-            {saveStatus && !quotaExceeded && <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="bg-green-500/10 text-green-400 px-3 py-1 rounded-full text-xs font-medium flex items-center gap-2 border border-green-500/20"><Check size={12} /> Salvato</motion.div>}
+            {saveStatus && !quotaExceeded && <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="bg-green-500/10 text-green-400 px-2 sm:px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1 sm:gap-2 border border-green-500/20"><Check size={12} /> <span className="hidden sm:inline">Salvato</span></motion.div>}
           </AnimatePresence>
           {user ? (
-            <button onClick={logout} className="flex items-center gap-2 bg-white/5 hover:bg-white/10 text-neutral-300 px-4 py-2 rounded-full text-sm font-bold transition-all border border-white/10">
+            <button onClick={logout} aria-label="Logout" className="flex items-center gap-2 bg-white/5 hover:bg-white/10 text-neutral-300 px-3 sm:px-4 py-2 rounded-full text-sm font-bold transition-all border border-white/10">
               {user.photoURL && <img src={user.photoURL} className="w-5 h-5 rounded-full border border-white/20" alt="Avatar" />}
-              <span>Logout</span><LogOut size={16} />
+              <span className="hidden sm:inline">Logout</span><LogOut size={16} />
             </button>
           ) : (
-            <button onClick={loginWithGoogle} className="flex items-center gap-2 bg-pizza-red text-white px-5 py-2 rounded-full text-sm font-bold"><LogIn size={16} /> Accedi</button>
+            <button onClick={loginWithGoogle} className="flex items-center gap-2 bg-pizza-red text-white px-3 sm:px-5 py-2 rounded-full text-sm font-bold"><LogIn size={16} /> <span className="hidden sm:inline">Accedi</span></button>
           )}
         </div>
       </header>
-      <nav className="bg-[#0f0600] border-b-2 border-pizza-red sticky top-[80px] z-40 flex">
-        <button onClick={() => setView('dash')} className={`px-8 py-4 text-sm font-medium transition-all ${view === 'dash' ? 'text-white border-b-4 border-pizza-gold' : 'text-neutral-400'}`}>Dashboard</button>
-        <button onClick={() => setView('preview')} className={`px-8 py-4 text-sm font-medium transition-all ${view === 'preview' ? 'text-white border-b-4 border-pizza-gold' : 'text-neutral-400'}`}>Anteprima Live</button>
+      <nav className="bg-[#0f0600] border-b-2 border-pizza-red sticky top-[57px] sm:top-[80px] z-40 flex">
+        <button onClick={() => setView('dash')} className={`px-4 sm:px-8 py-3 sm:py-4 text-sm font-medium transition-all ${view === 'dash' ? 'text-white border-b-4 border-pizza-gold' : 'text-neutral-400'}`}>Dashboard</button>
+        <button onClick={() => setView('preview')} className={`px-4 sm:px-8 py-3 sm:py-4 text-sm font-medium transition-all ${view === 'preview' ? 'text-white border-b-4 border-pizza-gold' : 'text-neutral-400'}`}>Anteprima Live</button>
       </nav>
       <main className="flex-1 overflow-x-hidden">
         {loading ? (
@@ -797,11 +799,11 @@ export default function Dashboard() {
             </div>
           </div>
         ) : view === 'dash' ? (
-          <div className="max-w-4xl mx-auto p-6 space-y-8">
+          <div className="max-w-4xl mx-auto p-3 sm:p-6 space-y-4 sm:space-y-8">
             {quotaExceeded && <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-xl">Limite Free Firebase raggiunto per oggi. Salvataggio disabilitato.</div>}
 
             {/* IMMAGINI */}
-            <section className="bg-white rounded-xl border border-neutral-200 p-6 shadow-sm">
+            <section className="bg-white rounded-xl border border-neutral-200 p-4 sm:p-6 shadow-sm">
               <h2 className="text-xl font-semibold text-pizza-dark mb-4 flex items-center gap-2"><ImageIcon className="text-pizza-red" size={24} /> Immagini (con URL)</h2>
               <div className="grid md:grid-cols-2 gap-6">
                 <div>
@@ -816,7 +818,7 @@ export default function Dashboard() {
             </section>
 
             {/* INFO */}
-            <section className="bg-white rounded-xl border border-neutral-200 p-6 shadow-sm">
+            <section className="bg-white rounded-xl border border-neutral-200 p-4 sm:p-6 shadow-sm">
               <h2 className="text-xl font-semibold mb-4">Informazioni</h2>
               <div className="space-y-4">
                 <div><label className="text-sm font-bold text-neutral-500 mb-1 block">Nome</label><input type="text" value={data.title} onChange={(e) => updateField('title', e.target.value)} className="w-full bg-neutral-50 border border-neutral-200 rounded-lg px-4 py-3 text-sm" /></div>
@@ -825,13 +827,13 @@ export default function Dashboard() {
             </section>
 
             {/* CONTATTI */}
-            <section className="bg-white rounded-xl border border-neutral-200 p-6 shadow-sm">
+            <section className="bg-white rounded-xl border border-neutral-200 p-4 sm:p-6 shadow-sm">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><Phone className="text-pizza-red" size={20} /> Contatti</h2>
               <div><label className="text-sm font-bold text-neutral-500 mb-1 block">Numero Telefono</label><input type="text" value={data.phone} onChange={(e) => updateField('phone', e.target.value)} className="w-full bg-neutral-50 border border-neutral-200 rounded-lg px-4 py-3 text-sm" /></div>
             </section>
 
             {/* SOCIAL */}
-            <section className="bg-white rounded-xl border border-neutral-200 p-6 shadow-sm">
+            <section className="bg-white rounded-xl border border-neutral-200 p-4 sm:p-6 shadow-sm">
               <h2 className="text-lg font-semibold mb-4">Social Media</h2>
               <div className="space-y-4">
                 {(['instagram', 'facebook', 'whatsapp', 'tiktok'] as const).map(platform => (
@@ -850,7 +852,7 @@ export default function Dashboard() {
             </section>
 
             {/* COLORI MENU */}
-            <section className="bg-white rounded-xl border border-neutral-200 p-6 shadow-sm">
+            <section className="bg-white rounded-xl border border-neutral-200 p-4 sm:p-6 shadow-sm">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><Palette className="text-pizza-red" size={20} /> Colori del Menù</h2>
               <p className="text-xs text-neutral-500 mb-4">Personalizza i colori della landing page del tuo menù pubblico.</p>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -883,7 +885,7 @@ export default function Dashboard() {
             </section>
 
             {/* SEZIONI MENU */}
-            <section className="bg-white rounded-xl border border-neutral-200 p-6 shadow-sm">
+            <section className="bg-white rounded-xl border border-neutral-200 p-4 sm:p-6 shadow-sm">
               <h2 className="text-lg font-semibold mb-2 flex items-center gap-2"><Edit3 className="text-pizza-red" size={20} /> Sezioni del Menù</h2>
               <p className="text-xs text-neutral-500 mb-4">Aggiungi, rinomina, riordina o nascondi le sezioni del menù.</p>
 
@@ -963,7 +965,7 @@ export default function Dashboard() {
             </section>
 
             {/* ALLERGENI */}
-            <section className="bg-white rounded-xl border border-neutral-200 p-6 shadow-sm">
+            <section className="bg-white rounded-xl border border-neutral-200 p-4 sm:p-6 shadow-sm">
               <div className="flex items-start justify-between gap-4 mb-2 flex-wrap">
                 <h2 className="text-lg font-semibold flex items-center gap-2"><AlertTriangle className="text-pizza-red" size={20} /> Allergeni</h2>
                 <label className="flex items-center gap-2 text-xs text-neutral-600">
@@ -1031,8 +1033,8 @@ export default function Dashboard() {
             </section>
 
             {/* GESTIONE MENU (items) */}
-            <section className="bg-white rounded-xl border border-neutral-200 p-6 shadow-sm">
-              <h2 className="text-lg font-semibold mb-6 flex items-center gap-2"><Pizza size={20} /> Gestione Menu</h2>
+            <section className="bg-white rounded-xl border border-neutral-200 p-4 sm:p-6 shadow-sm">
+              <h2 className="text-lg font-semibold mb-4 sm:mb-6 flex items-center gap-2"><Pizza size={20} /> Gestione Menu</h2>
               <div className="flex flex-wrap gap-2 mb-6">
                 {data.categories.map(cat => (
                   <button
@@ -1067,7 +1069,7 @@ export default function Dashboard() {
                           onDragOver={(e) => onDragOver(e, item.id)}
                           onDrop={() => onDrop(activeTab, item.id)}
                           onDragEnd={onDragEnd}
-                          className={`bg-neutral-50 border rounded-lg p-4 flex transition-all ${isEditing ? 'flex-col gap-3 border-pizza-red' : 'items-center gap-3 group border-neutral-200'} ${isDragOver ? 'border-pizza-gold bg-pizza-gold/10' : ''} ${item.hidden ? 'opacity-60' : ''}`}
+                          className={`bg-neutral-50 border rounded-lg p-3 sm:p-4 flex transition-all ${isEditing ? 'flex-col gap-3 border-pizza-red' : 'flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 group border-neutral-200'} ${isDragOver ? 'border-pizza-gold bg-pizza-gold/10' : ''} ${item.hidden ? 'opacity-60' : ''}`}
                         >
                           {isEditing ? (
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 w-full">
@@ -1098,51 +1100,102 @@ export default function Dashboard() {
                             </div>
                           ) : (
                             <>
-                              <div className="cursor-grab active:cursor-grabbing text-neutral-400 hover:text-pizza-dark" title="Trascina per spostare">
-                                <GripVertical size={18} />
+                              {/* RIGA 1 (mobile + desktop): grip + nome + prezzo/azioni a destra su desktop */}
+                              <div className="flex items-center gap-2 sm:gap-3 w-full sm:flex-1 min-w-0">
+                                <div className="cursor-grab active:cursor-grabbing text-neutral-400 hover:text-pizza-dark flex-shrink-0" title="Trascina per spostare">
+                                  <GripVertical size={18} />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className={`text-base sm:text-lg font-bold leading-tight ${item.hidden ? 'line-through text-neutral-500' : 'text-pizza-dark'}`}>{item.name}</p>
+                                  <p className="text-xs sm:text-sm text-neutral-800 italic truncate">
+                                    {isDrinkCategory(activeTab)
+                                      ? (item.format || (item.ml ? `${item.ml}ml` : ''))
+                                      : item.ingredients}
+                                  </p>
+                                </div>
+                                {/* Prezzo + azioni inline solo da sm+ */}
+                                <div className="hidden sm:flex items-center gap-1 sm:gap-2 flex-shrink-0">
+                                  <span className="text-lg font-bold text-pizza-red whitespace-nowrap">€{item.price.toFixed(2)}</span>
+                                  <button
+                                    onClick={() => toggleItemHidden(activeTab, item.id)}
+                                    title={item.hidden ? 'Mostra' : 'Nascondi'}
+                                    className="text-neutral-400 hover:text-pizza-dark p-2 hover:bg-neutral-200 rounded transition-colors"
+                                  >
+                                    {item.hidden ? <EyeOff size={18} /> : <Eye size={18} />}
+                                  </button>
+                                  <button onClick={() => startEditing(item)} className="text-neutral-400 hover:text-pizza-dark p-2 hover:bg-neutral-200 rounded transition-colors"><Edit3 size={18} /></button>
+                                  <button onClick={() => removeMenuItem(activeTab, item.id)} className="text-neutral-400 hover:text-red-500 p-2 hover:bg-neutral-200 rounded transition-colors"><Trash2 size={18} /></button>
+                                </div>
                               </div>
-                              <div className="flex-1 min-w-0">
-                                <p className={`text-lg font-bold ${item.hidden ? 'line-through text-neutral-500' : 'text-pizza-dark'}`}>{item.name}</p>
-                                <p className="text-sm text-neutral-800 italic truncate">
-                                  {isDrinkCategory(activeTab)
-                                    ? (item.format || (item.ml ? `${item.ml}ml` : ''))
-                                    : item.ingredients}
-                                </p>
-                                {(data.allergens || []).length > 0 && (
-                                  <div className="flex flex-wrap gap-1 mt-2">
-                                    <span className="text-[10px] uppercase font-bold text-neutral-400 self-center mr-1">Allergeni:</span>
-                                    {(data.allergens || []).map(a => {
-                                      const selected = (item.allergenIds || []).includes(a.id);
-                                      return (
-                                        <button
-                                          key={a.id}
-                                          onClick={() => toggleItemAllergen(activeTab, item.id, a.id)}
-                                          title={`${a.name}${a.description ? ' — ' + a.description : ''}`}
-                                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all ${
-                                            selected
-                                              ? 'bg-pizza-red text-white border-pizza-red'
-                                              : 'bg-white text-neutral-400 border-neutral-200 hover:border-pizza-red hover:text-pizza-red'
-                                          }`}
-                                        >
-                                          {a.code}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-1 sm:gap-2">
+
+                              {/* RIGA 2 mobile: prezzo + azioni */}
+                              <div className="flex sm:hidden items-center justify-between w-full pl-7">
                                 <span className="text-lg font-bold text-pizza-red whitespace-nowrap">€{item.price.toFixed(2)}</span>
-                                <button
-                                  onClick={() => toggleItemHidden(activeTab, item.id)}
-                                  title={item.hidden ? 'Mostra' : 'Nascondi'}
-                                  className="text-neutral-400 hover:text-pizza-dark p-2 hover:bg-neutral-200 rounded transition-colors"
-                                >
-                                  {item.hidden ? <EyeOff size={18} /> : <Eye size={18} />}
-                                </button>
-                                <button onClick={() => startEditing(item)} className="text-neutral-400 hover:text-pizza-dark p-2 hover:bg-neutral-200 rounded transition-colors"><Edit3 size={18} /></button>
-                                <button onClick={() => removeMenuItem(activeTab, item.id)} className="text-neutral-400 hover:text-red-500 p-2 hover:bg-neutral-200 rounded transition-colors"><Trash2 size={18} /></button>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={() => toggleItemHidden(activeTab, item.id)}
+                                    title={item.hidden ? 'Mostra' : 'Nascondi'}
+                                    aria-label={item.hidden ? 'Mostra' : 'Nascondi'}
+                                    className="text-neutral-500 hover:text-pizza-dark p-2 hover:bg-neutral-200 rounded transition-colors"
+                                  >
+                                    {item.hidden ? <EyeOff size={18} /> : <Eye size={18} />}
+                                  </button>
+                                  <button onClick={() => startEditing(item)} aria-label="Modifica" className="text-neutral-500 hover:text-pizza-dark p-2 hover:bg-neutral-200 rounded transition-colors"><Edit3 size={18} /></button>
+                                  <button onClick={() => removeMenuItem(activeTab, item.id)} aria-label="Elimina" className="text-neutral-500 hover:text-red-500 p-2 hover:bg-neutral-200 rounded transition-colors"><Trash2 size={18} /></button>
+                                </div>
                               </div>
+
+                              {/* RIGA 3: ALLERGENI - collassabile su mobile, sempre visibili su desktop */}
+                              {(data.allergens || []).length > 0 && (() => {
+                                const selectedCount = (item.allergenIds || []).length;
+                                const isExpanded = expandedAllergens.has(item.id);
+                                return (
+                                  <div className="w-full sm:w-auto sm:basis-full sm:order-last">
+                                    {/* Toggle button - solo mobile */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setExpandedAllergens(prev => {
+                                          const next = new Set(prev);
+                                          if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
+                                          return next;
+                                        });
+                                      }}
+                                      className="sm:hidden w-full flex items-center justify-between gap-2 px-3 py-2 mt-1 bg-white border border-neutral-200 rounded-lg text-xs font-bold text-neutral-600 hover:border-pizza-red hover:text-pizza-red transition-colors"
+                                    >
+                                      <span className="flex items-center gap-2">
+                                        <AlertTriangle size={14} className={selectedCount > 0 ? 'text-pizza-red' : 'text-neutral-400'} />
+                                        Allergeni
+                                        {selectedCount > 0 && (
+                                          <span className="bg-pizza-red text-white text-[10px] font-bold px-2 py-0.5 rounded-full">{selectedCount}</span>
+                                        )}
+                                      </span>
+                                      <ChevronDown size={16} className={`transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                                    </button>
+                                    {/* Pillole - mobile solo se espanso, desktop sempre */}
+                                    <div className={`flex flex-wrap gap-1 mt-2 ${isExpanded ? 'flex' : 'hidden'} sm:flex`}>
+                                      <span className="hidden sm:inline text-[10px] uppercase font-bold text-neutral-400 self-center mr-1">Allergeni:</span>
+                                      {(data.allergens || []).map(a => {
+                                        const selected = (item.allergenIds || []).includes(a.id);
+                                        return (
+                                          <button
+                                            key={a.id}
+                                            onClick={() => toggleItemAllergen(activeTab, item.id, a.id)}
+                                            title={`${a.name}${a.description ? ' — ' + a.description : ''}`}
+                                            className={`text-[11px] sm:text-[10px] font-bold min-w-[28px] px-2 py-1 sm:py-0.5 rounded-full border transition-all ${
+                                              selected
+                                                ? 'bg-pizza-red text-white border-pizza-red'
+                                                : 'bg-white text-neutral-400 border-neutral-200 hover:border-pizza-red hover:text-pizza-red'
+                                            }`}
+                                          >
+                                            {a.code}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                );
+                              })()}
                             </>
                           )}
                         </div>
@@ -1154,7 +1207,7 @@ export default function Dashboard() {
             </section>
 
             {/* CONDIVIDI MENU + SLUG PERSONALIZZATO */}
-            <section className="bg-white rounded-xl border border-neutral-200 p-6 shadow-sm">
+            <section className="bg-white rounded-xl border border-neutral-200 p-4 sm:p-6 shadow-sm">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><Share2 className="text-pizza-red" size={20} /> Condividi Menù</h2>
 
               <label className="text-xs font-bold text-neutral-500 uppercase block mb-2">Link personalizzato (slug)</label>
