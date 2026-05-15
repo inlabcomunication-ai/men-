@@ -271,7 +271,11 @@ export default function Dashboard() {
   };
 
   const baseUrl = process.env.APP_URL || window.location.origin;
-  const currentUrl = `${baseUrl}/menu/${data.title ? data.title.toLowerCase().replace(/[^a-z0-9]+/g, '-') : 'pizzeria'}-${user?.uid || 'demo'}`;
+  // L'UID Firebase contiene lettere maiuscole/minuscole miste, ma alcune
+  // piattaforme (es. Facebook) convertono i link in minuscolo rompendoli.
+  // Generiamo il link sempre in minuscolo: il fallback `slugLower` lato
+  // PublicMenu si occupa di trovare il documento corretto.
+  const currentUrl = `${baseUrl}/menu/${data.title ? data.title.toLowerCase().replace(/[^a-z0-9]+/g, '-') : 'pizzeria'}-${(user?.uid || 'demo').toLowerCase()}`;
 
   return (
     <div className="min-h-screen flex flex-col bg-[#f0ebe4]">
