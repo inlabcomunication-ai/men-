@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { Pizza, Phone, Instagram, Facebook, Smartphone, Globe } from 'lucide-react';
+import { Pizza, Phone, Instagram, Facebook, Smartphone, Globe, AlertTriangle, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { doc, onSnapshot, collection, query, where, getDocs, limit } from 'firebase/firestore';
+import { doc, onSnapshot, getDoc } from 'firebase/firestore';
 
 interface MenuItem {
   id: string;
@@ -11,6 +11,30 @@ interface MenuItem {
   price: number;
   ingredients?: string;
   ml?: number;
+  format?: string;
+  hidden?: boolean;
+  allergenIds?: string[];
+}
+
+interface Allergen {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+}
+
+interface CategoryDef {
+  key: string;
+  label: string;
+  hidden?: boolean;
+  isDrink?: boolean;
+}
+
+interface ThemeColors {
+  primary: string;
+  dark: string;
+  cream: string;
+  gold: string;
 }
 
 interface AppData {
@@ -19,13 +43,12 @@ interface AppData {
   phone: string;
   heroImg: string;
   logoImg: string;
-  menu: {
-    pizze: MenuItem[];
-    bianche: MenuItem[];
-    speciali: MenuItem[];
-    pucce: MenuItem[];
-    bibite: MenuItem[];
-  };
+  slug?: string;
+  categories?: CategoryDef[];
+  menu: Record<string, MenuItem[]>;
+  theme?: ThemeColors;
+  allergens?: Allergen[];
+  allergensEnabled?: boolean;
   socials: {
     whatsapp: { enabled: boolean; url: string };
     facebook: { enabled: boolean; url: string };
@@ -34,12 +57,20 @@ interface AppData {
   };
 }
 
-const CATEGORIES = {
-  pizze: 'Pizze',
-  bianche: 'Pizze Bianche',
-  speciali: 'Speciali',
-  pucce: 'Pucce',
-  bibite: 'Bibite'
+// Categorie di fallback per dati legacy (senza array `categories`)
+const LEGACY_CATEGORIES: CategoryDef[] = [
+  { key: 'pizze', label: 'Pizze' },
+  { key: 'bianche', label: 'Pizze Bianche' },
+  { key: 'speciali', label: 'Speciali' },
+  { key: 'pucce', label: 'Pucce' },
+  { key: 'bibite', label: 'Bibite', isDrink: true },
+];
+
+const DEFAULT_THEME: ThemeColors = {
+  primary: '#C1121F',
+  dark: '#1A0A00',
+  cream: '#FFF8F0',
+  gold: '#E8A020',
 };
 
 const WhatsAppIcon = ({ size = 24, className = '' }: { size?: number, className?: string }) => (
@@ -58,100 +89,137 @@ const SOCIAL_ICONS: Record<string, any> = {
 
 export default function PublicMenu() {
   const { slug } = useParams();
-  // Estrae la parte finale dello slug come potenziale ID Firestore
-  const rawSlugId = slug?.split('-').pop() ?? '';
 
   const [data, setData] = useState<AppData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<keyof AppData['menu']>('pizze');
+  const [activeTab, setActiveTab] = useState<string>('');
+  const [resolvedId, setResolvedId] = useState<string | null>(null);
+  const [resolveError, setResolveError] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
+  // Chiudi dropdown al click fuori
   useEffect(() => {
-    if (!rawSlugId) {
-      setLoading(false);
-      return;
-    }
-
-    let unsubscribe: (() => void) | undefined;
-    let cancelled = false;
-
-    // Funzione helper: una volta che conosciamo l'ID reale (corretto in case),
-    // ci agganciamo a quel documento con onSnapshot per gli aggiornamenti live.
-    const subscribeTo = (realId: string) => {
-      const docRef = doc(db, 'pizzerias', realId);
-      unsubscribe = onSnapshot(docRef, (snapshot) => {
-        if (cancelled) return;
-        if (snapshot.exists()) {
-          setData(snapshot.data() as AppData);
-        }
-        setLoading(false);
-      }, (error) => {
-        handleFirestoreError(error, OperationType.GET, `pizzerias/${realId}`);
-        if (!cancelled) setLoading(false);
-      });
+    if (!dropdownOpen) return;
+    const onClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
     };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [dropdownOpen]);
 
-    // Primo tentativo: prova a leggere il documento con l'ID esatto dall'URL.
-    // Se Facebook ha rovinato l'URL convertendo in minuscolo, fallirà
-    // (snapshot.exists() === false) e useremo il fallback via query.
-    const firstAttempt = onSnapshot(doc(db, 'pizzerias', rawSlugId), (snapshot) => {
-      if (cancelled) return;
-      if (snapshot.exists()) {
-        // L'ID era già corretto, restiamo agganciati a questo snapshot.
-        setData(snapshot.data() as AppData);
+  // Risolve l'ID della pizzeria dallo slug:
+  // 1. Se lo slug ha forma "...-<uid>" (vecchio formato), prendiamo l'ultimo segmento
+  // 2. Altrimenti consultiamo /slugs/{slug} per ottenere l'ownerId
+  useEffect(() => {
+    let cancelled = false;
+    setResolveError(false);
+
+    async function resolve() {
+      if (!slug) {
+        setResolveError(true);
         setLoading(false);
         return;
       }
 
-      // Fallback: cerchiamo per campo `slugLower` (versione minuscola dell'ID
-      // salvata dalla Dashboard). In questo modo recuperiamo il documento
-      // anche quando l'URL è arrivato tutto in minuscolo da Facebook.
-      firstAttempt();
-      (async () => {
-        try {
-          const q = query(
-            collection(db, 'pizzerias'),
-            where('slugLower', '==', rawSlugId.toLowerCase()),
-            limit(1)
-          );
-          const snap = await getDocs(q);
-          if (cancelled) return;
-          if (!snap.empty) {
-            const realId = snap.docs[0].id;
-            subscribeTo(realId);
-          } else {
-            setLoading(false);
+      // 1) Prova come slug custom in /slugs/{slug}
+      try {
+        const slugDoc = await getDoc(doc(db, 'slugs', slug));
+        if (!cancelled && slugDoc.exists()) {
+          const ownerId = slugDoc.data()?.ownerId;
+          if (ownerId) {
+            setResolvedId(ownerId);
+            return;
           }
-        } catch (error) {
-          handleFirestoreError(error, OperationType.GET, `pizzerias?slugLower=${rawSlugId.toLowerCase()}`);
-          if (!cancelled) setLoading(false);
         }
-      })();
+      } catch (e) {
+        // ignoriamo: provo il fallback legacy
+      }
+
+      // 2) Fallback legacy: l'ID è l'ultimo segmento dopo l'ultimo "-"
+      const legacyId = slug.split('-').pop();
+      if (legacyId) {
+        if (!cancelled) setResolvedId(legacyId);
+        return;
+      }
+
+      if (!cancelled) {
+        setResolveError(true);
+        setLoading(false);
+      }
+    }
+
+    resolve();
+    return () => { cancelled = true; };
+  }, [slug]);
+
+  useEffect(() => {
+    if (!resolvedId) return;
+
+    const docRef = doc(db, 'pizzerias', resolvedId);
+    const unsubscribe = onSnapshot(docRef, (snapshot) => {
+      if (snapshot.exists()) {
+        setData(snapshot.data() as AppData);
+      } else {
+        setData(null);
+      }
+      setLoading(false);
     }, (error) => {
-      handleFirestoreError(error, OperationType.GET, `pizzerias/${rawSlugId}`);
-      if (!cancelled) setLoading(false);
+      handleFirestoreError(error, OperationType.GET, `pizzerias/${resolvedId}`);
+      setLoading(false);
     });
 
-    // Inizialmente unsubscribe punta al primo tentativo; verrà sostituito
-    // se siamo costretti ad agganciarci a un altro documento via fallback.
-    unsubscribe = firstAttempt;
+    return () => unsubscribe();
+  }, [resolvedId]);
 
-    return () => {
-      cancelled = true;
-      if (unsubscribe) unsubscribe();
-    };
-  }, [rawSlugId]);
+  // Categorie effettive: usa SEMPRE quelle salvate dall'utente.
+  // Solo se categories è completamente assente (pizzerie molto vecchie)
+  // ricostruiamo le categorie dalle chiavi presenti in `menu`.
+  let categories: CategoryDef[];
+  if (data?.categories && Array.isArray(data.categories) && data.categories.length > 0) {
+    categories = data.categories;
+  } else if (data?.menu && typeof data.menu === 'object') {
+    // Fallback: deriva le categorie dalle chiavi del menu
+    const menuKeys = Object.keys(data.menu);
+    if (menuKeys.length > 0) {
+      const fallbackByKey: Record<string, CategoryDef> = {
+        pizze:    { key: 'pizze',    label: 'Pizze' },
+        bianche:  { key: 'bianche',  label: 'Pizze Bianche' },
+        speciali: { key: 'speciali', label: 'Speciali' },
+        pucce:    { key: 'pucce',    label: 'Pucce' },
+        bibite:   { key: 'bibite',   label: 'Bibite', isDrink: true },
+      };
+      categories = menuKeys.map(k => fallbackByKey[k] || { key: k, label: k.charAt(0).toUpperCase() + k.slice(1) });
+    } else {
+      categories = LEGACY_CATEGORIES;
+    }
+  } else {
+    categories = LEGACY_CATEGORIES;
+  }
+  const visibleCategories = categories.filter(c => !c.hidden);
+
+  // Imposta tab iniziale appena arrivano i dati
+  useEffect(() => {
+    if (visibleCategories.length && !visibleCategories.find(c => c.key === activeTab)) {
+      setActiveTab(visibleCategories[0].key);
+    }
+  }, [visibleCategories.map(c => c.key).join('|')]);
+
+  const theme: ThemeColors = data?.theme ? { ...DEFAULT_THEME, ...data.theme } : DEFAULT_THEME;
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-pizza-dark">
-        <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: 'linear' }} className="text-pizza-red">
+      <div className="min-h-screen flex items-center justify-center" style={{ background: theme.dark }}>
+        <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: 'linear' }} style={{ color: theme.primary }}>
           <Pizza size={48} />
         </motion.div>
       </div>
     );
   }
 
-  if (!data) {
+  if (!data || resolveError) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-pizza-cream p-6 text-center">
         <Pizza size={64} className="text-neutral-300 mb-4" />
@@ -161,31 +229,38 @@ export default function PublicMenu() {
     );
   }
 
+  const activeCategory = categories.find(c => c.key === activeTab);
+  const isDrink = activeCategory?.isDrink === true;
+  const items = (data.menu?.[activeTab] || []).filter(it => !it.hidden);
+
   return (
-    <div className="min-h-screen bg-pizza-dark flex items-center justify-center">
+    <div className="min-h-screen flex items-center justify-center" style={{ background: theme.dark }}>
       {/* Background decoration for Desktop */}
       {data.heroImg && (
-        <div 
+        <div
           className="fixed inset-0 opacity-20 blur-2xl scale-110 pointer-events-none hidden lg:block"
           style={{ backgroundImage: `url(${data.heroImg})`, backgroundSize: 'cover', backgroundPosition: 'center' }}
         />
       )}
 
       {/* Main Mobile Frame */}
-      <div className="w-full max-w-[480px] bg-white min-h-screen lg:h-[90vh] lg:min-h-0 lg:rounded-[40px] lg:shadow-[0_0_100px_rgba(0,0,0,0.5)] lg:border-[8px] lg:border-pizza-dark overflow-hidden relative flex flex-col">
-        
+      <div
+        className="w-full max-w-[480px] min-h-screen lg:h-[90vh] lg:min-h-0 lg:rounded-[40px] lg:shadow-[0_0_100px_rgba(0,0,0,0.5)] overflow-hidden relative flex flex-col"
+        style={{ background: '#fff', borderColor: theme.dark, borderStyle: 'solid' }}
+      >
+
         {/* Scrollable Content */}
-        <div className="h-full overflow-y-auto bg-pizza-cream flex flex-col no-scrollbar">
-          
+        <div className="h-full overflow-y-auto flex flex-col no-scrollbar" style={{ background: theme.cream }}>
+
           {/* Hero Header */}
-          <div className="h-72 shrink-0 relative bg-pizza-dark flex items-center justify-center">
+          <div className="h-72 shrink-0 relative flex items-center justify-center" style={{ background: theme.dark }}>
             {data.heroImg ? (
               <img src={data.heroImg} className="absolute inset-0 w-full h-full object-cover opacity-60" alt="Hero" />
             ) : (
-              <div className="absolute inset-0 bg-gradient-to-br from-pizza-dark to-pizza-red/30 opacity-60" />
+              <div className="absolute inset-0 opacity-60" style={{ background: `linear-gradient(135deg, ${theme.dark}, ${theme.primary}55)` }} />
             )}
-            
-            <motion.div 
+
+            <motion.div
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               className="relative z-10 text-center px-6"
@@ -193,14 +268,14 @@ export default function PublicMenu() {
               {data.logoImg ? (
                 <img src={data.logoImg} className="w-24 h-24 object-contain mx-auto mb-4 bg-white/10 rounded-full backdrop-blur-sm border border-white/20 p-2" alt="Logo" />
               ) : (
-                <div className="w-20 h-20 bg-pizza-red rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-pizza-gold shadow-lg">
+                <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 border-2 shadow-lg" style={{ background: theme.primary, borderColor: theme.gold }}>
                   <Pizza className="text-white" size={40} />
                 </div>
               )}
               <h1 className="playfair text-4xl text-white font-black italic drop-shadow-md">
                 {data.title}
               </h1>
-              <p className="text-xs uppercase tracking-[0.2em] text-pizza-gold mt-2 font-bold">
+              <p className="text-xs uppercase tracking-[0.2em] mt-2 font-bold" style={{ color: theme.gold }}>
                 {data.subtitle || 'Tradizione e Passione'}
               </p>
             </motion.div>
@@ -208,17 +283,57 @@ export default function PublicMenu() {
 
           {/* Menu Sections */}
           <div className="p-6 flex-1">
-            {/* Category Chips */}
-            <div className="flex flex-wrap justify-center gap-3 mb-8">
-              {Object.entries(CATEGORIES).map(([key, label]) => (
-                <button
-                  key={key}
-                  onClick={() => setActiveTab(key as any)}
-                  className={`whitespace-nowrap px-6 py-3 rounded-full text-sm font-black border uppercase tracking-wider shadow-sm transition-all ${activeTab === key ? 'bg-pizza-red text-white border-pizza-red shadow-pizza-red/40 scale-105' : 'bg-white text-neutral-500 border-neutral-200 hover:bg-neutral-50'}`}
-                >
-                  {label}
-                </button>
-              ))}
+            {/* Category Dropdown */}
+            <div className="relative mb-8 max-w-xs mx-auto" ref={dropdownRef}>
+              <button
+                type="button"
+                onClick={() => setDropdownOpen(o => !o)}
+                aria-expanded={dropdownOpen}
+                aria-haspopup="listbox"
+                className="w-full flex items-center justify-between gap-3 px-6 py-4 rounded-full text-sm font-black uppercase tracking-wider shadow-md transition-all active:scale-[0.98]"
+                style={{ background: theme.primary, color: '#fff', border: `1px solid ${theme.primary}` }}
+              >
+                <span className="truncate">
+                  {visibleCategories.find(c => c.key === activeTab)?.label || 'Seleziona sezione'}
+                </span>
+                <ChevronDown
+                  size={18}
+                  style={{ transition: 'transform 0.2s ease', transform: dropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}
+                />
+              </button>
+
+              <AnimatePresence>
+                {dropdownOpen && (
+                  <motion.ul
+                    initial={{ opacity: 0, y: -8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{ duration: 0.15 }}
+                    role="listbox"
+                    className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-xl overflow-hidden z-30 max-h-[60vh] overflow-y-auto"
+                    style={{ border: `1px solid ${theme.primary}30` }}
+                  >
+                    {visibleCategories.map(cat => {
+                      const isActive = cat.key === activeTab;
+                      return (
+                        <li key={cat.key} role="option" aria-selected={isActive}>
+                          <button
+                            type="button"
+                            onClick={() => { setActiveTab(cat.key); setDropdownOpen(false); }}
+                            className="w-full text-left px-6 py-3 text-sm font-bold uppercase tracking-wider transition-colors"
+                            style={isActive
+                              ? { background: theme.cream, color: theme.primary }
+                              : { background: '#fff', color: theme.dark }
+                            }
+                          >
+                            {cat.label}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </motion.ul>
+                )}
+              </AnimatePresence>
             </div>
 
             {/* Menu Items List */}
@@ -232,19 +347,42 @@ export default function PublicMenu() {
                   transition={{ duration: 0.25 }}
                   className="space-y-6"
                 >
-                  {data.menu[activeTab].length > 0 ? (
-                    data.menu[activeTab].map((item) => (
-                       <div key={item.id} className="flex flex-col sm:flex-row sm:justify-between sm:items-baseline group gap-2 sm:gap-4">
+                  {items.length > 0 ? (
+                    items.map((item) => {
+                      const itemAllergens = data.allergensEnabled !== false
+                        ? (item.allergenIds || [])
+                            .map(aid => (data.allergens || []).find(a => a.id === aid))
+                            .filter((a): a is Allergen => !!a)
+                        : [];
+                      return (
+                      <div key={item.id} className="flex flex-col sm:flex-row sm:justify-between sm:items-baseline group gap-2 sm:gap-4">
                         <div className="flex-1">
-                          <h4 className="text-xl font-black text-pizza-dark leading-tight">{item.name}</h4>
-                          <p className="text-sm text-neutral-500 italic mt-1 font-medium">
-                            {activeTab === 'bibite' ? (item.ml ? `${item.ml}ml` : '') : item.ingredients}
+                          <h4 className="text-xl font-black leading-tight" style={{ color: theme.dark }}>{item.name}</h4>
+                          {itemAllergens.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1.5">
+                              {itemAllergens.map(a => (
+                                <span
+                                  key={a.id}
+                                  title={`${a.name}${a.description ? ' — ' + a.description : ''}`}
+                                  className="text-[10px] font-black px-1.5 py-0.5 rounded"
+                                  style={{ background: `${theme.primary}1a`, color: theme.primary, border: `1px solid ${theme.primary}40` }}
+                                >
+                                  {a.code}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          <p className="text-sm text-neutral-500 italic mt-1.5 font-medium">
+                            {isDrink
+                              ? (item.format || (item.ml ? `${item.ml}ml` : ''))
+                              : item.ingredients}
                           </p>
                         </div>
                         <div className="hidden sm:block flex-1 h-[1px] border-b-2 border-dotted border-neutral-300 mx-2 mb-1 opacity-50" />
-                        <span className="playfair text-xl font-black text-pizza-red italic bg-pizza-red/5 px-3 py-1 rounded-lg self-start sm:self-auto">€{item.price.toFixed(2)}</span>
+                        <span className="playfair text-xl font-black italic px-3 py-1 rounded-lg self-start sm:self-auto" style={{ color: theme.primary, background: `${theme.primary}0d` }}>€{item.price.toFixed(2)}</span>
                       </div>
-                    ))
+                      );
+                    })
                   ) : (
                     <div className="text-center py-12 text-neutral-500 italic text-sm">
                       Nessun elemento disponibile in questa categoria
@@ -253,27 +391,48 @@ export default function PublicMenu() {
                 </motion.div>
               </AnimatePresence>
             </div>
+
+            {/* Legenda Allergeni (collassabile) */}
+            {data.allergensEnabled !== false && (data.allergens || []).length > 0 && (
+              <details className="mt-10 border rounded-xl overflow-hidden" style={{ borderColor: `${theme.dark}20` }}>
+                <summary className="cursor-pointer px-5 py-4 font-bold text-sm flex items-center gap-2 select-none" style={{ color: theme.dark, background: `${theme.primary}0d` }}>
+                  <AlertTriangle size={16} style={{ color: theme.primary }} /> Legenda Allergeni
+                  <span className="ml-auto text-xs font-normal text-neutral-500">tocca per aprire</span>
+                </summary>
+                <ul className="divide-y" style={{ borderColor: `${theme.dark}10` }}>
+                  {(data.allergens || []).map(a => (
+                    <li key={a.id} className="px-5 py-3 text-sm flex gap-3">
+                      <span className="font-black shrink-0 min-w-8 text-center rounded px-1.5 py-0.5 text-xs self-start" style={{ background: theme.primary, color: '#fff' }}>{a.code}</span>
+                      <div>
+                        <p className="font-bold" style={{ color: theme.dark }}>{a.name}</p>
+                        {a.description && <p className="text-xs text-neutral-500 mt-0.5">{a.description}</p>}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
           </div>
 
           {/* Mobile Footer */}
-          <div className="bg-pizza-dark p-8 md:p-10 text-center text-white shrink-0 mt-8 rounded-t-[2.5rem]">
+          <div className="p-8 md:p-10 text-center text-white shrink-0 mt-8 rounded-t-[2.5rem]" style={{ background: theme.dark }}>
             <h3 className="playfair text-3xl mb-6 italic font-bold">Contatti & Social</h3>
-            
+
             {data.phone && (
-              <a href={`tel:${data.phone}`} className="inline-flex items-center gap-3 bg-pizza-red text-white px-8 py-4 rounded-full font-black text-sm uppercase tracking-widest shadow-lg shadow-pizza-red/40 mb-8 active:scale-95 transition-transform hover:bg-pizza-red/90">
+              <a href={`tel:${data.phone}`} className="inline-flex items-center gap-3 text-white px-8 py-4 rounded-full font-black text-sm uppercase tracking-widest shadow-lg mb-8 active:scale-95 transition-transform" style={{ background: theme.primary, boxShadow: `0 10px 30px ${theme.primary}66` }}>
                 <Phone size={20} /> Chiama Ora
               </a>
             )}
 
             <div className="flex justify-center gap-4 flex-wrap">
               {(['instagram', 'facebook', 'tiktok', 'whatsapp'] as const).map(platform => {
-                const social = data.socials[platform];
+                const social = data.socials?.[platform];
                 if (!social || !social.enabled) return null;
-                
+
                 const Icon = SOCIAL_ICONS[platform];
                 let href = social.url;
                 if (!href) return null;
-                
+
                 if (platform === 'whatsapp') {
                   href = `https://wa.me/${href.replace(/[^0-9]/g, '')}`;
                 } else if (!href.startsWith('http')) {
@@ -281,19 +440,19 @@ export default function PublicMenu() {
                 }
 
                 return (
-                  <a 
+                  <a
                     key={platform}
-                    href={href} 
-                    target="_blank" 
+                    href={href}
+                    target="_blank"
                     rel="noopener noreferrer"
-                    className="w-12 h-12 rounded-full bg-white/10 border border-white/20 flex items-center justify-center hover:bg-pizza-red hover:border-white transition-all shadow-lg"
+                    className="w-12 h-12 rounded-full bg-white/10 border border-white/20 flex items-center justify-center hover:bg-white/20 transition-all shadow-lg"
                   >
                     <Icon size={20} />
                   </a>
                 );
               })}
             </div>
-            
+
             <p className="mt-10 text-[10px] text-white/40 font-black tracking-[0.2em] uppercase">
               &copy; {new Date().getFullYear()} {data.title}
             </p>
