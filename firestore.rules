@@ -1,0 +1,108 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(pizzeriaId) {
+      return isSignedIn() && (
+        resource == null || resource.data.ownerId == request.auth.uid
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidSocial(social) {
+      return social.keys().hasAll(['enabled', 'url']) &&
+             social.enabled is bool &&
+             social.url is string;
+    }
+
+    function isValidTheme(t) {
+      return (!('primary' in t) || (t.primary is string && t.primary.size() <= 32)) &&
+             (!('dark' in t) || (t.dark is string && t.dark.size() <= 32)) &&
+             (!('cream' in t) || (t.cream is string && t.cream.size() <= 32)) &&
+             (!('gold' in t) || (t.gold is string && t.gold.size() <= 32));
+    }
+
+    // Validazione "soft" per la pizzeria: lasciamo libertà sulle chiavi del menu
+    // (sezioni dinamiche aggiungibili dall'utente) ma manteniamo i campi base.
+    function isValidPizzeria(data) {
+      return data.keys().hasAll(['title', 'ownerId', 'updatedAt']) &&
+             data.title is string && data.title.size() <= 100 &&
+             data.ownerId == request.auth.uid &&
+             data.updatedAt == request.time &&
+             (!data.keys().contains('subtitle') || (data.subtitle is string && data.subtitle.size() <= 200)) &&
+             (!data.keys().contains('phone') || (data.phone is string && data.phone.size() <= 30)) &&
+             (!data.keys().contains('heroImg') || (data.heroImg is string && data.heroImg.size() <= 1048576)) &&
+             (!data.keys().contains('logoImg') || (data.logoImg is string && data.logoImg.size() <= 1048576)) &&
+             (!data.keys().contains('slug') || (data.slug is string && data.slug.size() <= 64)) &&
+             (!data.keys().contains('menu') || data.menu is map) &&
+             (!data.keys().contains('categories') || data.categories is list) &&
+             (!data.keys().contains('theme') || (data.theme is map && isValidTheme(data.theme))) &&
+             (!data.keys().contains('allergens') || data.allergens is list) &&
+             (!data.keys().contains('allergensEnabled') || data.allergensEnabled is bool) &&
+             (!data.keys().contains('socials') || (
+               data.socials.keys().hasAll(['whatsapp', 'facebook', 'instagram', 'tiktok']) &&
+               isValidSocial(data.socials.whatsapp) &&
+               isValidSocial(data.socials.facebook) &&
+               isValidSocial(data.socials.instagram) &&
+               isValidSocial(data.socials.tiktok)
+             ));
+    }
+
+    // Helper paths
+    match /test/connection {
+      allow get: if true;
+    }
+
+    match /pizzerias/{pizzeriaId} {
+      allow get: if isValidId(pizzeriaId);
+      allow list: if false;
+
+      allow create: if isSignedIn() && isValidId(pizzeriaId) && isValidPizzeria(request.resource.data);
+
+      allow update: if isValidId(pizzeriaId) && isOwner(pizzeriaId) && isValidPizzeria(request.resource.data) &&
+                      request.resource.data.ownerId == resource.data.ownerId;
+
+      allow delete: if isValidId(pizzeriaId) && isOwner(pizzeriaId);
+    }
+
+    // Slugs: mappatura slug -> ownerId (uid).
+    // - Lettura pubblica (per risolvere lo slug nella PublicMenu page e per verifiche disponibilità)
+    // - Scrittura solo se autenticato e il documento è "libero" (non esiste o ownerId è il proprio o null)
+    match /slugs/{slug} {
+      allow get: if true;
+      allow list: if false;
+
+      allow create: if isSignedIn()
+                      && isValidId(slug)
+                      && request.resource.data.ownerId == request.auth.uid;
+
+      allow update: if isSignedIn()
+                      && isValidId(slug)
+                      && (
+                        // proprietario corrente
+                        (resource.data.ownerId == request.auth.uid)
+                        // oppure documento "libero" (precedentemente rilasciato)
+                        || (resource.data.ownerId == null)
+                      )
+                      && (
+                        // sta prendendo possesso o rilasciando il proprio slug
+                        request.resource.data.ownerId == request.auth.uid
+                        || (request.resource.data.ownerId == null && resource.data.ownerId == request.auth.uid)
+                      );
+
+      allow delete: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+    }
+  }
+}
