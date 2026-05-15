@@ -1,0 +1,88 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(pizzeriaId) {
+      return isSignedIn() && (
+        resource == null || resource.data.ownerId == request.auth.uid
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidMenuItem(item) {
+      return item.keys().hasAll(['id', 'name', 'price']) &&
+             item.id is string && item.id.size() <= 128 &&
+             item.name is string && item.name.size() <= 100 &&
+             item.price is number &&
+             (!item.keys().contains('ingredients') || item.ingredients is string) &&
+             (!item.keys().contains('ml') || item.ml is number);
+    }
+
+    function isValidMenu(menu) {
+      return menu.keys().hasAll(['pizze', 'bianche', 'speciali', 'pucce', 'bibite']) &&
+             menu.pizze is list &&
+             menu.bianche is list &&
+             menu.speciali is list &&
+             menu.pucce is list &&
+             menu.bibite is list;
+    }
+
+    function isValidSocial(social) {
+      return social.keys().hasAll(['enabled', 'url']) &&
+             social.enabled is bool &&
+             social.url is string;
+    }
+
+    function isValidPizzeria(data) {
+      return data.keys().hasAll(['title', 'ownerId', 'updatedAt']) &&
+             data.title is string && data.title.size() <= 100 &&
+             data.ownerId == request.auth.uid &&
+             data.updatedAt == request.time &&
+             (!data.keys().contains('slugLower') || (data.slugLower is string && data.slugLower.size() <= 128 && data.slugLower == data.ownerId.lower())) &&
+             (!data.keys().contains('subtitle') || (data.subtitle is string && data.subtitle.size() <= 200)) &&
+             (!data.keys().contains('phone') || (data.phone is string && data.phone.size() <= 30)) &&
+             (!data.keys().contains('heroImg') || (data.heroImg is string && data.heroImg.size() <= 1048576)) && // 1MB limit check
+             (!data.keys().contains('logoImg') || (data.logoImg is string && data.logoImg.size() <= 1048576)) &&
+             (!data.keys().contains('menu') || isValidMenu(data.menu)) &&
+             (!data.keys().contains('socials') || (
+               data.socials.keys().hasAll(['whatsapp', 'facebook', 'instagram', 'tiktok']) &&
+               isValidSocial(data.socials.whatsapp) &&
+               isValidSocial(data.socials.facebook) &&
+               isValidSocial(data.socials.instagram) &&
+               isValidSocial(data.socials.tiktok)
+             ));
+    }
+
+    // Helper paths
+    match /test/connection {
+      allow get: if true;
+    }
+
+    match /pizzerias/{pizzeriaId} {
+      allow get: if isValidId(pizzeriaId);
+      // Consente list SOLO con limit basso. Il client (PublicMenu) filtra
+      // sempre per slugLower con limit=1 come fallback case-insensitive.
+      // Senza limit basso, list resta vietata (protezione anti-enumerazione).
+      allow list: if request.query.limit <= 5;
+      
+      allow create: if isSignedIn() && isValidId(pizzeriaId) && isValidPizzeria(request.resource.data);
+      
+      allow update: if isValidId(pizzeriaId) && isOwner(pizzeriaId) && isValidPizzeria(request.resource.data) &&
+                      request.resource.data.ownerId == resource.data.ownerId; 
+      
+      allow delete: if isValidId(pizzeriaId) && isOwner(pizzeriaId);
+    }
+  }
+}
