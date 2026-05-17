@@ -10,6 +10,20 @@ import { auth, db, loginWithGoogle, logout, handleFirestoreError, OperationType,
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, serverTimestamp, getDocFromServer, getDoc } from 'firebase/firestore';
 
+// Generatore di id robusto: usa crypto.randomUUID se disponibile, altrimenti
+// fallback con timestamp + 2 numeri casuali per evitare collisioni e id corti.
+// Math.random().toString(36).slice(2, 11) puo' generare stringhe di 1-2 caratteri
+// quando Math.random() restituisce un decimale corto -> collisioni -> nomi pizza che si "scambiano".
+const genId = (): string => {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+  } catch { /* ignore */ }
+  const part = () => Math.random().toString(36).slice(2).padEnd(9, '0').slice(0, 9);
+  return `${Date.now().toString(36)}-${part()}-${part()}`;
+};
+
 interface MenuItem {
   id: string;
   name: string;
@@ -234,7 +248,7 @@ export default function Dashboard() {
     slug: '',
     categories: DEFAULT_CATEGORIES,
     menu: {
-      pizze: [{ id: '1', name: 'Margherita', price: 6, ingredients: 'pomodoro, mozzarella, basilico' }],
+      pizze: [{ id: genId(), name: 'Margherita', price: 6, ingredients: 'pomodoro, mozzarella, basilico' }],
       bianche: [], speciali: [], pucce: [], bibite: []
     },
     theme: DEFAULT_THEME,
@@ -257,6 +271,27 @@ export default function Dashboard() {
         if (!menu[k]) menu[k] = raw.menu[k];
       });
     }
+
+    // ---- RIPARAZIONE ID DUPLICATI / CORTI ----
+    // Vecchie versioni dell'app generavano id con Math.random().toString(36).slice(2,11)
+    // che a volte producevano stringhe di 1-3 caratteri -> collisioni -> nomi che
+    // si scambiavano in PublicMenu (es. Lazio al posto di Margherita).
+    // Rigeneriamo qui ogni id duplicato o sospettosamente corto. Le modifiche
+    // verranno autosalvate su Firestore dal normale ciclo di save.
+    const seenIds = new Set<string>();
+    Object.keys(menu).forEach(catKey => {
+      menu[catKey] = (menu[catKey] || []).map((it: MenuItem) => {
+        const tooShort = !it.id || typeof it.id !== 'string' || it.id.length < 6;
+        if (tooShort || seenIds.has(it.id)) {
+          const fixed = { ...it, id: genId() };
+          seenIds.add(fixed.id);
+          return fixed;
+        }
+        seenIds.add(it.id);
+        return it;
+      });
+    });
+
     return {
       title: raw.title || '',
       subtitle: raw.subtitle || '',
@@ -376,7 +411,7 @@ export default function Dashboard() {
     if (!nameInput?.value || !priceInput?.value) return;
     const drink = isDrinkCategory(cat);
     const newItem: MenuItem = {
-      id: Math.random().toString(36).slice(2, 11),
+      id: genId(),
       name: nameInput.value,
       price: parseFloat(priceInput.value),
     };
@@ -530,7 +565,7 @@ export default function Dashboard() {
     let nextNum = 1;
     while (usedNums.has(nextNum)) nextNum++;
     const newAllergen: Allergen = {
-      id: `a-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      id: `a-${genId()}`,
       code: String(nextNum),
       name: '',
       description: ''
