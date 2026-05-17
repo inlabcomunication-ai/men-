@@ -5,6 +5,41 @@ import { motion, AnimatePresence } from 'motion/react';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { doc, onSnapshot, getDoc } from 'firebase/firestore';
 
+// Generatore di id robusto (stesso pattern di Dashboard.tsx).
+const genId = (): string => {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+  } catch { /* ignore */ }
+  const part = () => Math.random().toString(36).slice(2).padEnd(9, '0').slice(0, 9);
+  return `${Date.now().toString(36)}-${part()}-${part()}`;
+};
+
+// Ripara id duplicati o troppo corti nelle pizze/bibite letti da Firestore.
+// Serve a evitare che il PublicMenu mostri nomi sbagliati (es. "Lazio" al posto
+// di "Margherita") finche' il dashboard non ha riscritto i dati corretti.
+// Questa funzione NON salva nulla, ripara solo in memoria al volo.
+const sanitizeMenuIds = (raw: any): any => {
+  if (!raw || typeof raw !== 'object' || !raw.menu || typeof raw.menu !== 'object') return raw;
+  const seenIds = new Set<string>();
+  const newMenu: Record<string, any[]> = {};
+  Object.keys(raw.menu).forEach(catKey => {
+    const list = Array.isArray(raw.menu[catKey]) ? raw.menu[catKey] : [];
+    newMenu[catKey] = list.map((it: any) => {
+      const tooShort = !it || typeof it.id !== 'string' || it.id.length < 6;
+      if (tooShort || seenIds.has(it.id)) {
+        const fixed = { ...it, id: genId() };
+        seenIds.add(fixed.id);
+        return fixed;
+      }
+      seenIds.add(it.id);
+      return it;
+    });
+  });
+  return { ...raw, menu: newMenu };
+};
+
 interface MenuItem {
   id: string;
   name: string;
@@ -161,7 +196,7 @@ export default function PublicMenu() {
     const docRef = doc(db, 'pizzerias', resolvedId);
     const unsubscribe = onSnapshot(docRef, (snapshot) => {
       if (snapshot.exists()) {
-        setData(snapshot.data() as AppData);
+        setData(sanitizeMenuIds(snapshot.data()) as AppData);
       } else {
         setData(null);
       }
