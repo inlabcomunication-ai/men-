@@ -24,20 +24,62 @@ const sanitizeMenuIds = (raw: any): any => {
   if (!raw || typeof raw !== 'object' || !raw.menu || typeof raw.menu !== 'object') return raw;
   const seenIds = new Set<string>();
   const newMenu: Record<string, any[]> = {};
+  const repaired: Array<{ cat: string; name: string; oldId: any; newId: string; reason: string }> = [];
   Object.keys(raw.menu).forEach(catKey => {
     const list = Array.isArray(raw.menu[catKey]) ? raw.menu[catKey] : [];
     newMenu[catKey] = list.map((it: any) => {
       const tooShort = !it || typeof it.id !== 'string' || it.id.length < 6;
-      if (tooShort || seenIds.has(it.id)) {
+      const duplicate = it && typeof it.id === 'string' && seenIds.has(it.id);
+      if (tooShort || duplicate) {
         const fixed = { ...it, id: genId() };
         seenIds.add(fixed.id);
+        repaired.push({
+          cat: catKey,
+          name: it?.name ?? '(senza nome)',
+          oldId: it?.id,
+          newId: fixed.id,
+          reason: tooShort ? 'id troppo corto/mancante' : 'id duplicato'
+        });
         return fixed;
       }
       seenIds.add(it.id);
       return it;
     });
   });
+  if (repaired.length > 0) {
+    console.warn('[MENU-DIAG] sanitizeMenuIds ha riparato', repaired.length, 'item:', repaired);
+  }
   return { ...raw, menu: newMenu };
+};
+
+// Controlla incoerenze nei dati Firestore appena arrivati: id mancanti,
+// duplicati globali, name mancante, doppioni di nome nella stessa categoria.
+const diagnoseRawData = (raw: any) => {
+  if (!raw?.menu) {
+    console.warn('[MENU-DIAG] documento senza menu', raw);
+    return;
+  }
+  const allIds: Array<{ cat: string; idx: number; id: any; name: any }> = [];
+  Object.keys(raw.menu).forEach(catKey => {
+    const list = Array.isArray(raw.menu[catKey]) ? raw.menu[catKey] : [];
+    list.forEach((it: any, idx: number) => {
+      allIds.push({ cat: catKey, idx, id: it?.id, name: it?.name });
+      if (!it?.id) console.warn('[MENU-DIAG] item senza id', { cat: catKey, idx, item: it });
+      if (!it?.name) console.warn('[MENU-DIAG] item senza name', { cat: catKey, idx, item: it });
+    });
+  });
+  const seen = new Map<string, Array<{ cat: string; idx: number; name: any }>>();
+  allIds.forEach(({ cat, idx, id, name }) => {
+    if (!id) return;
+    if (!seen.has(id)) seen.set(id, []);
+    seen.get(id)!.push({ cat, idx, name });
+  });
+  seen.forEach((occurrences, id) => {
+    if (occurrences.length > 1) {
+      console.error('[MENU-DIAG] ID DUPLICATO trovato in Firestore:', id, occurrences);
+    }
+  });
+  console.log('[MENU-DIAG] snapshot ricevuto. Totale item:', allIds.length, 'updatedAt:', raw.updatedAt);
 };
 
 interface MenuItem {
@@ -196,7 +238,9 @@ export default function PublicMenu() {
     const docRef = doc(db, 'pizzerias', resolvedId);
     const unsubscribe = onSnapshot(docRef, (snapshot) => {
       if (snapshot.exists()) {
-        setData(sanitizeMenuIds(snapshot.data()) as AppData);
+        const raw = snapshot.data();
+        diagnoseRawData(raw);
+        setData(sanitizeMenuIds(raw) as AppData);
       } else {
         setData(null);
       }
@@ -267,6 +311,24 @@ export default function PublicMenu() {
   const activeCategory = categories.find(c => c.key === activeTab);
   const isDrink = activeCategory?.isDrink === true;
   const items = (data.menu?.[activeTab] || []).filter(it => !it.hidden);
+
+  // [DIAG] Logga ogni volta che la lista visibile cambia.
+  // Se vedi qui un nome sbagliato accanto a un id, abbiamo trovato il bug.
+  if (typeof window !== 'undefined' && items.length > 0) {
+    console.log('[MENU-DIAG] render activeTab=' + activeTab + ' items:',
+      items.map(it => ({ id: it.id, name: it.name, price: it.price }))
+    );
+    // Controllo duplicati nelle key React proprio prima del render
+    const idsInList = items.map(it => it.id);
+    const dupsInList = idsInList.filter((id, i) => idsInList.indexOf(id) !== i);
+    if (dupsInList.length > 0) {
+      console.error('[MENU-DIAG] KEY DUPLICATE nella lista renderizzata!', {
+        activeTab,
+        dupsInList,
+        items: items.map(it => ({ id: it.id, name: it.name }))
+      });
+    }
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: theme.dark }}>
@@ -392,7 +454,7 @@ export default function PublicMenu() {
                       return (
                       <div key={item.id} className="flex flex-col sm:flex-row sm:justify-between sm:items-baseline group gap-2 sm:gap-4">
                         <div className="flex-1">
-                          <h4 className="text-xl font-black leading-tight" style={{ color: theme.dark }}>{item.name}</h4>
+                          <h4 translate="no" className="text-xl font-black leading-tight notranslate" style={{ color: theme.dark }}>{item.name}</h4>
                           {itemAllergens.length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-1.5">
                               {itemAllergens.map(a => (
@@ -407,7 +469,7 @@ export default function PublicMenu() {
                               ))}
                             </div>
                           )}
-                          <p className="text-sm text-neutral-500 italic mt-1.5 font-medium">
+                          <p translate="no" className="text-sm text-neutral-500 italic mt-1.5 font-medium notranslate">
                             {isDrink
                               ? (item.format || (item.ml ? `${item.ml}ml` : ''))
                               : item.ingredients}
